@@ -1,0 +1,14 @@
+[package]
+name = "rusty_clipper"
+version = "0.1.0"
+authors = ["Joseph Sadusk <jsadusk@gmail.com>"]
+edition = "2018"
+build = "build.rs"
+
+[dependencies]
+libc = "0.2"
+failure = "0.1"
+
+[build-dependencies]
+cmake = "0.1"
+
