@@ -2,17 +2,50 @@ extern crate libc;
 #[macro_use]
 extern crate failure;
 
-use libc::size_t;
+use libc::{c_char, size_t};
 use std::ptr;
 use std::ops::{Index, IndexMut};
+use std::ffi::CStr;
 
 #[derive(Fail, Debug)]
 pub enum ClipperError {
     #[fail(display = "Unexpected C++ exception in call {}", call)]
-    CppException { call : &'static str }
+    CppException { call : &'static str },
+    #[fail(display = "Unexpected C++ exception in call {}: {}", call, msg)]
+    CppExceptionStr { call : &'static str, msg : String },
+    #[fail(display = "Clipper exception in call {}: {}", call, msg)]
+    ClipperException { call : &'static str, msg : String }
 }
 
 type ClipperResult<T> = Result<T, ClipperError>;
+
+#[repr(C)]
+pub struct CppReturnCodeMsg {
+    code: i32,
+    msg: *const c_char
+}
+
+impl CppReturnCodeMsg {
+    fn is_err(&self) -> bool {
+        self.code != 0
+    }
+    
+    fn to_err(self, call : &'static str) -> ClipperError {
+        match self.code {
+            1 => ClipperError::CppExceptionStr {
+                call: call,
+                msg: unsafe {CStr::from_ptr(self.msg)}
+                                  .to_str().unwrap().to_owned()
+            },
+            2 => ClipperError::ClipperException {
+                call: call,
+                msg: unsafe {CStr::from_ptr(self.msg)}
+                                  .to_str().unwrap().to_owned()
+            },
+            _ => ClipperError::CppException { call: call }
+        }
+    }
+}        
 
 #[repr(C)]
 pub struct CppIntPoint {
@@ -44,48 +77,89 @@ pub enum CppEndType {
     EtOpenButt = 4
 }
 
+pub enum CppClipType {
+    CtIntersection = 0,
+    CtUnion = 1,
+    CtDifference = 2,
+    CtXor = 3
+}
+
+pub enum CppPolyFillType {
+    PftEvenOdd = 0,
+    PftNonZero = 1,
+    PftPositive = 2,
+    PftNegative = 3
+}
+
 #[link(name = "ClipperHandle")]
 extern {
-    fn path_new(obj: *mut *mut CppPathObj, data: *mut *mut CppIntPoint) -> i32;
+    fn path_new(obj: *mut *mut CppPathObj, data: *mut *mut CppIntPoint)
+                -> CppReturnCodeMsg;
     fn path_new_sized(size : size_t, obj: *mut *mut CppPathObj,
-                      data: *mut *mut CppIntPoint) -> i32;
-    fn path_data(obj: *const CppPathObj, data: *mut *mut CppIntPoint) ->i32;
+                      data: *mut *mut CppIntPoint) -> CppReturnCodeMsg;
+    fn path_data(obj: *const CppPathObj, data: *mut *mut CppIntPoint,
+                 size: *mut usize) -> CppReturnCodeMsg;
     fn path_push_back(obj: *mut CppPathObj, elem: *const CppIntPoint,
-                      data: *mut *mut CppIntPoint) ->i32;
+                      data: *mut *mut CppIntPoint) -> CppReturnCodeMsg;
     fn path_delete(obj: *mut CppPathObj);
 
-    fn paths_new(obj: *mut *mut CppPathsObj, data: *mut *mut CppPathObj) -> i32;
+    fn paths_new(obj: *mut *mut CppPathsObj, data: *mut *mut CppPathObj)
+                 -> CppReturnCodeMsg;
     fn paths_new_sized(size : size_t, obj: *mut *mut CppPathsObj,
-                      data: *mut *mut CppPathObj) -> i32;
-    fn paths_data(obj: *const CppPathsObj, data: *mut *mut CppPathObj) ->i32;
+                      data: *mut *mut CppPathObj) -> CppReturnCodeMsg;
+    fn paths_data(obj: *const CppPathsObj, data: *mut *mut CppPathObj,
+                  size: *mut usize) -> CppReturnCodeMsg;
     fn paths_push_back_move(obj: *mut CppPathsObj, elem: *mut CppPathObj,
-                            data: *mut *mut CppPathObj) ->i32;
+                            data: *mut *mut CppPathObj)
+        -> CppReturnCodeMsg;
     fn paths_delete(obj: *mut CppPathsObj);
 
-    fn clipper_new(obj: *mut *mut CppClipperObj, initOptions : i32) ->i32;
+    fn clipper_new(obj: *mut *mut CppClipperObj, initOptions : i32)
+        -> CppReturnCodeMsg;
     fn clipper_add_path(clipper_obj: *mut CppClipperObj,
                         path_obj : *const CppPathObj,
                         poly_type : i32,
-                        closed : i32) ->i32;
+                        closed : i32) -> CppReturnCodeMsg;
+    fn clipper_add_paths(clipper_obj: *mut CppClipperObj,
+                         paths_obj : *const CppPathsObj,
+                         poly_type : i32,
+                         closed : i32)
+        -> CppReturnCodeMsg;
+    fn clipper_execute_open_closed(clipper_obj: *mut CppClipperObj,
+                                   solution_open_obj: *mut *mut CppPathsObj,
+                                   solution_closed_obj: *mut *mut CppPathsObj,
+                                   clip_type: i32,
+                                   subj_fill_type: i32,
+                                   clip_fill_type: i32)
+        -> CppReturnCodeMsg;
     fn clipper_delete(obj: *mut CppClipperObj);
 
-    fn clipper_offset_new(obj: *mut *mut CppClipperOffsetObj) ->i32;
+    fn clipper_offset_new(obj: *mut *mut CppClipperOffsetObj)
+        -> CppReturnCodeMsg;
     fn clipper_offset_add_path(clipper_obj: *mut CppClipperOffsetObj,
                                path_obj: *const CppPathObj,
                                join_type: i32,
-                               end_type: i32) ->i32;
+                               end_type: i32)
+        -> CppReturnCodeMsg;
+    fn clipper_offset_add_paths(clipper_obj: *mut CppClipperOffsetObj,
+                                paths_obj: *const CppPathsObj,
+                                join_type: i32,
+                                end_type: i32)
+        -> CppReturnCodeMsg;
     fn clipper_offset_delete(obj: *mut CppClipperOffsetObj);
 }
 
 pub struct CppPath {
     obj: *mut CppPathObj,
     data: *mut CppIntPoint,
+    size: usize,
     owned: bool
 }
 
 pub struct CppPaths {
     obj: *mut CppPathsObj,
     data: *mut CppPathObj,
+    size: usize,
     owned: bool
 }
 
@@ -104,10 +178,10 @@ impl CppPath {
             let mut data: *mut CppIntPoint = ptr::null_mut();
             let code = path_new_sized(size, &mut obj, &mut data);
 
-            if code == 0 {
-                Ok(CppPath { obj : obj, data : data, owned : true })
+            if code.is_err() {
+                Err(code.to_err("path_new_sized"))
             } else {
-                Err(ClipperError::CppException { call : "path_new_sized" })
+                Ok(CppPath { obj: obj, data: data, size: size, owned: true })
             }
         }
     }
@@ -118,10 +192,10 @@ impl CppPath {
             let mut data: *mut CppIntPoint = ptr::null_mut();
             let code = path_new(&mut obj, &mut data);
 
-            if code == 0 {
-                Ok(CppPath { obj : obj, data : data, owned : true })
+            if code.is_err() {
+                Err(code.to_err("path_new"))
             } else {
-                Err(ClipperError::CppException { call : "path_new" })
+                Ok(CppPath { obj: obj, data: data, size: 0, owned: true })
             }
         }
     }
@@ -129,12 +203,13 @@ impl CppPath {
     pub(crate) fn from(obj : *mut CppPathObj) -> ClipperResult<CppPath> {
         unsafe {
             let mut data: *mut CppIntPoint = ptr::null_mut();
-            let code = path_data(obj, &mut data);
+            let mut size: usize = 0;
+            let code = path_data(obj, &mut data, &mut size);
 
-            if code == 0 {
-                Ok(CppPath { obj : obj, data : data, owned : false })
+            if code.is_err() {
+                Err(code.to_err("path_data"))
             } else {
-                Err(ClipperError::CppException { call : "path_data" })
+                Ok(CppPath { obj: obj, data: data, size: size, owned: false })
             }
         }
     }
@@ -143,14 +218,19 @@ impl CppPath {
         unsafe {
             let code = path_push_back(self.obj, &elem, &mut self.data);
 
-            if code == 0 {
-                Ok(())
+            if code.is_err() {
+                Err(code.to_err("path_push_back"))
             } else {
-                Err(ClipperError::CppException { call : "path_push_back" })
+                self.size += 1;
+                Ok(())
             }
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.size
+    }
+    
     pub(crate) fn to_handle(mut self) -> *mut CppPathObj {
         self.owned = false;
         self.obj
@@ -196,10 +276,10 @@ impl CppPaths {
             let mut data: *mut CppPathObj = ptr::null_mut();
             let code = paths_new_sized(size, &mut obj, &mut data);
 
-            if code == 0 {
-                Ok(CppPaths { obj : obj, data : data, owned : true })
+            if code.is_err() {
+                Err(code.to_err("paths_new_sized"))
             } else {
-                Err(ClipperError::CppException { call : "paths_new_sized" })
+                Ok(CppPaths { obj: obj, data: data, size: size, owned: true })
             }
         }
     }
@@ -210,10 +290,10 @@ impl CppPaths {
             let mut data: *mut CppPathObj = ptr::null_mut();
             let code = paths_new(&mut obj, &mut data);
 
-            if code == 0 {
-                Ok(CppPaths { obj : obj, data : data, owned : true })
+            if code.is_err() {
+                Err(code.to_err("paths_new"))
             } else {
-                Err(ClipperError::CppException { call : "paths_new" })
+                Ok(CppPaths { obj: obj, data: data, size: 0, owned: true })
             }
         }
     }
@@ -221,12 +301,13 @@ impl CppPaths {
     pub(crate) fn from(obj : *mut CppPathsObj) -> ClipperResult<CppPaths> {
         unsafe {
             let mut data: *mut CppPathObj = ptr::null_mut();
-            let code = paths_data(obj, &mut data);
+            let mut size: usize = 0;
+            let code = paths_data(obj, &mut data, &mut size);
 
-            if code == 0 {
-                Ok(CppPaths { obj : obj, data : data, owned : false })
+            if code.is_err() {
+                Err(code.to_err("paths_data"))
             } else {
-                Err(ClipperError::CppException { call : "paths_data" })
+                Ok(CppPaths { obj: obj, data: data, size: size, owned: false })
             }
         }
     }
@@ -236,20 +317,25 @@ impl CppPaths {
             let code = paths_push_back_move(self.obj, elem.to_handle(),
                                             &mut self.data);
 
-            if code == 0 {
-                Ok(())
+            if code.is_err() {
+                Err(code.to_err("paths_push_back_move"))
             } else {
-                Err(ClipperError::CppException { call : "paths_push_back_move" })
+                self.size += 1;
+                Ok(())
             }
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.size
+    }
+    
     pub(crate) fn to_handle(mut self) -> *mut CppPathsObj {
         self.owned = false;
         self.obj
     }
 
-    pub(crate) fn handle(self) -> *const CppPathsObj {
+    pub(crate) fn handle(&self) -> *const CppPathsObj {
         self.obj as *const CppPathsObj
     }
 
@@ -273,10 +359,10 @@ impl Clipper {
         unsafe {
             let mut obj: *mut CppClipperObj = ptr::null_mut();
             let code = clipper_new(&mut obj, 0);
-            if code == 0 {
-                Ok(Clipper { obj : obj})
+            if code.is_err() {
+                Err(code.to_err("clipper_new"))
             } else {
-                Err(ClipperError::CppException { call : "clipper_new" })
+                Ok(Clipper { obj : obj})
             }
         }
     }
@@ -288,13 +374,50 @@ impl Clipper {
             let code = clipper_add_path(self.obj, path.handle(),
                                         poly_type as i32,
                                         match closed { true => 1, false => 0});
-            if code == 0 {
-                Ok(())
+            if code.is_err() {
+                Err(code.to_err("clipper_add_path"))
             } else {
-                Err(ClipperError::CppException { call : "clipper_add_path" })
+                Ok(())
             }
         }
     }
+
+    pub fn add_paths(&mut self,
+                paths : &CppPaths, poly_type : CppPolyType, closed : bool)
+                -> ClipperResult<()> {
+        unsafe {
+            let code = clipper_add_paths(self.obj, paths.handle(),
+                                         poly_type as i32,
+                                         match closed { true => 1, false => 0});
+            if code.is_err() {
+                Err(code.to_err("clipper_add_paths"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    pub fn execute_open_closed(&mut self,
+                               clip_type: CppClipType,
+                               subj_fill_type: CppPolyFillType,
+                               clip_fill_type: CppPolyFillType)
+                               -> ClipperResult<(CppPaths, CppPaths)> {
+        unsafe {
+            let mut solution_open_obj : *mut CppPathsObj = ptr::null_mut();
+            let mut solution_closed_obj : *mut CppPathsObj = ptr::null_mut();
+            let code = clipper_execute_open_closed(
+                self.obj, &mut solution_open_obj, &mut solution_closed_obj,
+                clip_type as i32, subj_fill_type as i32, clip_fill_type as i32);
+
+            if code.is_err() {
+                Err(code.to_err("clipper_execute_open_closed"))
+            } else {
+                Ok((CppPaths::from(solution_open_obj)?,
+                    CppPaths::from(solution_closed_obj)?))
+            }
+        }
+    }
+                               
 }
 
 impl Drop for Clipper {
@@ -310,10 +433,10 @@ impl ClipperOffset {
         unsafe {
             let mut obj: *mut CppClipperOffsetObj = ptr::null_mut();
             let code = clipper_offset_new(&mut obj);
-            if code == 0 {
-                Ok(ClipperOffset { obj : obj })
+            if code.is_err() {
+                Err(code.to_err("clipper_offset_new"))
             } else {
-                Err(ClipperError::CppException { call : "clipper_offset_new" })
+                Ok(ClipperOffset { obj : obj })
             }
         }
     }
@@ -325,10 +448,26 @@ impl ClipperOffset {
             let code = clipper_offset_add_path(self.obj, path.handle(),
                                                join_type as i32,
                                                end_type as i32);
-            if code == 0 {
-                Ok(())
+            if code.is_err() {
+                Err(code.to_err("clipper_offset_add_path"))
             } else {
-                Err(ClipperError::CppException { call : "clipper_offset_add_path" })
+                Ok(())
+            }
+        }
+    }
+
+    pub fn add_paths(&mut self,
+                     paths : &CppPaths, join_type : CppJoinType,
+                     end_type: CppEndType)
+                     -> ClipperResult<()> {
+        unsafe {
+            let code = clipper_offset_add_paths(self.obj, paths.handle(),
+                                                join_type as i32,
+                                                end_type as i32);
+            if code.is_err() {
+                Err(code.to_err("clipper_offset_add_paths"))
+            } else {
+                Ok(())
             }
         }
     }
@@ -462,8 +601,8 @@ mod tests {
 
     #[test]
     fn test_path_from() {
-        let mut path1 = CppPath::new().unwrap();
-        let mut path2 = CppPath::from(path1.to_handle()).unwrap();
+        let path1 = CppPath::new().unwrap();
+        let mut _path2 = CppPath::from(path1.to_handle()).unwrap();
     }
     
     #[test]
@@ -488,11 +627,58 @@ mod tests {
         path0.push(CppIntPoint { x: 1, y: 2}).unwrap();
 
         let mut paths = CppPaths::new().unwrap();
-        paths.push(path0);
+        paths.push(path0).unwrap();
 
-        let mut path1 = paths.at(0).unwrap();
-        let mut point = &path1[0];
-        assert!(point.x == 1);
-        assert!(point.y == 2);
+        let path1 = paths.at(0).unwrap();
+        let point = &path1[0];
+        assert_eq!(point.x, 1);
+        assert_eq!(point.y, 2);
+    }
+
+    #[test]
+    fn test_clipper_open_difference() {
+        let mut subj = CppPath::new().unwrap();
+        subj.push(CppIntPoint { x: 0, y: 1}).unwrap();
+        subj.push(CppIntPoint { x: 5, y: 1}).unwrap();
+
+        let mut clip = CppPath::new().unwrap();
+        clip.push(CppIntPoint { x: 1, y: 0 }).unwrap();
+        clip.push(CppIntPoint { x: 1, y: 2 }).unwrap();
+        clip.push(CppIntPoint { x: 2, y: 2 }).unwrap();
+        clip.push(CppIntPoint { x: 2, y: 0 }).unwrap();
+        clip.push(CppIntPoint { x: 1, y: 0 }).unwrap();
+        
+        let mut clipper = Clipper::new().unwrap();
+        clipper.add_path(&subj, CppPolyType::PtSubject, false).unwrap();
+        clipper.add_path(&clip, CppPolyType::PtClip, true).unwrap();
+
+        let (mut open, closed) = clipper.execute_open_closed(
+            CppClipType::CtDifference,
+            CppPolyFillType::PftNonZero,
+            CppPolyFillType::PftNonZero).unwrap();
+
+        assert_eq!(open.len(), 2);
+        assert_eq!(closed.len(), 0);
+
+        let piece1 = open.at(0).unwrap();
+        assert_eq!(piece1.len(), 2);
+        let pt = &piece1[0];
+        assert_eq!(pt.x, 1);
+        assert_eq!(pt.y, 1);
+
+        let pt = &piece1[1];
+        assert_eq!(pt.x, 0);
+        assert_eq!(pt.y, 1);
+
+        let piece2 = open.at(1).unwrap();
+        assert_eq!(piece2.len(), 2);
+
+        let pt = &piece2[0];
+        assert_eq!(pt.x, 2);
+        assert_eq!(pt.y, 1);
+
+        let pt = &piece2[1];
+        assert_eq!(pt.x, 5);
+        assert_eq!(pt.y, 1);
     }
 }
