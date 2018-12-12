@@ -1,3 +1,4 @@
+#![feature(ptr_offset_from)]
 extern crate libc;
 #[macro_use]
 extern crate failure;
@@ -103,12 +104,13 @@ extern {
                       data: *mut *mut CppIntPoint) -> CppReturnCodeMsg;
     fn path_delete(obj: *mut CppPathObj);
 
-    fn paths_new(obj: *mut *mut CppPathsObj, data: *mut *mut CppPathObj)
-                 -> CppReturnCodeMsg;
+    fn paths_new(obj: *mut *mut CppPathsObj, data: *mut *mut CppPathObj,
+                 elem_size: *mut usize) -> CppReturnCodeMsg;
     fn paths_new_sized(size : size_t, obj: *mut *mut CppPathsObj,
-                      data: *mut *mut CppPathObj) -> CppReturnCodeMsg;
+                       data: *mut *mut CppPathObj, elem_size: *mut usize)
+                       -> CppReturnCodeMsg;
     fn paths_data(obj: *const CppPathsObj, data: *mut *mut CppPathObj,
-                  size: *mut usize) -> CppReturnCodeMsg;
+                  size: *mut usize, elem_size: *mut usize) -> CppReturnCodeMsg;
     fn paths_push_back_move(obj: *mut CppPathsObj, elem: *mut CppPathObj,
                             data: *mut *mut CppPathObj)
         -> CppReturnCodeMsg;
@@ -160,6 +162,7 @@ pub struct CppPaths {
     obj: *mut CppPathsObj,
     data: *mut CppPathObj,
     size: usize,
+    elem_size: usize,
     owned: bool
 }
 
@@ -274,12 +277,14 @@ impl CppPaths {
         unsafe {
             let mut obj: *mut CppPathsObj = ptr::null_mut();
             let mut data: *mut CppPathObj = ptr::null_mut();
-            let code = paths_new_sized(size, &mut obj, &mut data);
+            let mut elem_size: usize = 0;
+            let code = paths_new_sized(size, &mut obj, &mut data, &mut elem_size);
 
             if code.is_err() {
                 Err(code.to_err("paths_new_sized"))
             } else {
-                Ok(CppPaths { obj: obj, data: data, size: size, owned: true })
+                Ok(CppPaths { obj: obj, data: data, size: size, elem_size: elem_size,
+                              owned: true })
             }
         }
     }
@@ -288,12 +293,14 @@ impl CppPaths {
         unsafe {
             let mut obj: *mut CppPathsObj = ptr::null_mut();
             let mut data: *mut CppPathObj = ptr::null_mut();
-            let code = paths_new(&mut obj, &mut data);
+            let mut elem_size: usize = 0;
+            let code = paths_new(&mut obj, &mut data, &mut elem_size);
 
             if code.is_err() {
                 Err(code.to_err("paths_new"))
             } else {
-                Ok(CppPaths { obj: obj, data: data, size: 0, owned: true })
+                Ok(CppPaths { obj: obj, data: data, size: 0, elem_size: elem_size,
+                              owned: true })
             }
         }
     }
@@ -302,12 +309,14 @@ impl CppPaths {
         unsafe {
             let mut data: *mut CppPathObj = ptr::null_mut();
             let mut size: usize = 0;
-            let code = paths_data(obj, &mut data, &mut size);
+            let mut elem_size: usize = 0;
+            let code = paths_data(obj, &mut data, &mut size, &mut elem_size);
 
             if code.is_err() {
                 Err(code.to_err("paths_data"))
             } else {
-                Ok(CppPaths { obj: obj, data: data, size: size, owned: false })
+                Ok(CppPaths { obj: obj, data: data, size: size, elem_size: elem_size,
+                              owned: false })
             }
         }
     }
@@ -340,7 +349,16 @@ impl CppPaths {
     }
 
     pub fn at(&mut self, idx : usize) -> ClipperResult<CppPath> {
-        CppPath::from(unsafe { self.data.offset(idx as isize) })
+        unsafe {
+            let idx = idx as isize;
+            let ptr = self.data as *mut u8;
+            let off = ptr.offset(idx * self.elem_size as isize);
+
+            if idx != 0 {
+                assert!(ptr != off);
+            }
+            CppPath::from(off as *mut CppPathObj)
+        }
     }
 }
 
@@ -619,6 +637,8 @@ mod tests {
         path1.push(CppIntPoint { x: 1, y: 2 }).unwrap();
         let mut path2 = paths.at(2).unwrap();
         path2.push(CppIntPoint { x: 1, y: 2 }).unwrap();
+
+        assert_eq!(path2.len(), 1);
     }
 
     #[test]
@@ -674,11 +694,11 @@ mod tests {
         assert_eq!(piece2.len(), 2);
 
         let pt = &piece2[0];
-        assert_eq!(pt.x, 2);
+        assert_eq!(pt.x, 5);
         assert_eq!(pt.y, 1);
 
         let pt = &piece2[1];
-        assert_eq!(pt.x, 5);
+        assert_eq!(pt.x, 2);
         assert_eq!(pt.y, 1);
     }
 }

@@ -24,6 +24,12 @@ ReturnCodeMsg path_new(void **obj, ClipperLib::IntPoint **data) {
     )
 }
 
+ReturnCodeMsg path_sizeof(size_t *size) {
+    SAFE_WRAP(
+        *size = sizeof(ClipperLib::Path);
+    )
+}
+
 ReturnCodeMsg path_data(const void *obj, ClipperLib::IntPoint **data, size_t *size) {
     SAFE_WRAP(
         ClipperLib::Path &path = *(ClipperLib::Path*)obj;
@@ -54,7 +60,7 @@ void path_delete(void *obj) {
     delete path;
 }
 
-ReturnCodeMsg paths_new(void **obj, void **data) {
+ReturnCodeMsg paths_new(void **obj, void **data, size_t *elem_size) {
     SAFE_WRAP(
         ClipperLib::Paths *newPaths = new ClipperLib::Paths();
         *obj = (void*)newPaths;
@@ -63,19 +69,21 @@ ReturnCodeMsg paths_new(void **obj, void **data) {
 }
 
 
-ReturnCodeMsg paths_new_sized(size_t size, void **obj, void **data) {
+ReturnCodeMsg paths_new_sized(size_t size, void **obj, void **data, size_t *elem_size) {
     SAFE_WRAP(
         ClipperLib::Paths *newPaths = new ClipperLib::Paths(size);
         *obj = (void*)newPaths;
         *data = newPaths->data();
+        *elem_size = sizeof(ClipperLib::Path);
     )
 }
 
-ReturnCodeMsg paths_data(const void *obj, void **data, size_t *size) {
+ReturnCodeMsg paths_data(const void *obj, void **data, size_t *size, size_t *elem_size) {
     SAFE_WRAP(
         ClipperLib::Paths &paths = *(ClipperLib::Paths*)obj;
         *data = paths.data();
         *size = paths.size();
+        *elem_size = sizeof(ClipperLib::Path);
     )
 }
 
