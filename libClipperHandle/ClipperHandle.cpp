@@ -173,7 +173,7 @@ ReturnCodeMsg clipper_execute_open_closed(
     )
 }
 
-ReturnCodeMsg clipper_delete(void *obj) {
+void clipper_delete(void *obj) {
     ClipperLib::Clipper *clipper = (ClipperLib::Clipper*)obj;
     delete clipper;
 }
@@ -186,9 +186,24 @@ ReturnCodeMsg clipper_offset_new(void **obj) {
     )
 }
 
-ReturnCodeMsg clipper_offset_delete(void **obj) {
+void clipper_offset_delete(void **obj) {
     ClipperLib::ClipperOffset *clipperOffset = (ClipperLib::ClipperOffset*)obj;
     delete clipperOffset;
+}
+
+ReturnCodeMsg clipper_offset_execute(
+      void *clipper_offset_obj,
+      void **solution_obj,
+      double delta) {
+
+    SAFE_WRAP(
+        ClipperLib::ClipperOffset *clipper_offset =
+            (ClipperLib::ClipperOffset*)clipper_offset_obj;
+
+        ClipperLib::Paths *solution = new ClipperLib::Paths();
+        clipper_offset->Execute(*solution, delta);
+        *solution_obj = solution;
+    )
 }
 
 }

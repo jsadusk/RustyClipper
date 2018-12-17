@@ -149,6 +149,10 @@ extern {
                                 end_type: i32)
         -> CppReturnCodeMsg;
     fn clipper_offset_delete(obj: *mut CppClipperOffsetObj);
+    fn clipper_offset_execute(obj: *mut CppClipperOffsetObj,
+                              solution: *mut *mut CppPathsObj,
+                              delta: f64)
+        -> CppReturnCodeMsg;
 }
 
 pub struct CppPath {
@@ -489,6 +493,19 @@ impl ClipperOffset {
             }
         }
     }
+
+    pub fn execute(&mut self, delta: f64) -> ClipperResult<CppPaths> {
+        unsafe {
+            let mut paths_obj : *mut CppPathsObj = ptr::null_mut();
+            let code = clipper_offset_execute(self.obj, &mut paths_obj, delta);
+
+            if code.is_err() {
+                Err(code.to_err("clipper_offset_execute"))
+            } else {
+                Ok(CppPaths::from(paths_obj)?)
+            }
+        }
+    }
 }
 
 impl Drop for ClipperOffset {
@@ -700,5 +717,22 @@ mod tests {
         let pt = &piece2[1];
         assert_eq!(pt.x, 2);
         assert_eq!(pt.y, 1);
+    }
+
+    #[test]
+    fn test_clipper_offset_execute() {
+        let mut subj = CppPath::new().unwrap();
+        subj.push(CppIntPoint { x: 0, y: 1}).unwrap();
+        subj.push(CppIntPoint { x: 5, y: 1}).unwrap();
+
+        let mut clipper_offset = ClipperOffset::new().unwrap();
+        clipper_offset.add_path(&subj, CppJoinType::JtSquare, CppEndType::EtOpenSquare).unwrap();
+
+        let mut solution : CppPaths = clipper_offset.execute(1.0).unwrap();
+
+        assert_eq!(solution.len(), 1);
+        let elem = solution.at(0).unwrap();
+
+        assert_eq!(elem.len(), 4);
     }
 }
