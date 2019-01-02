@@ -1,6 +1,7 @@
 #include <polyclipping/clipper.hpp>
 #include <iostream>
 #include <exception>
+#include <cassert>
 
 extern "C" {
 
@@ -55,6 +56,15 @@ ReturnCodeMsg path_push_back(void *obj, const ClipperLib::IntPoint *elem,
     )
 }
 
+ReturnCodeMsg path_resize(void *obj, size_t size,
+                          ClipperLib::IntPoint **data) {
+    SAFE_WRAP(
+        ClipperLib::Path *path = (ClipperLib::Path*)obj;
+        path->resize(size);
+        *data = path->data();
+    )
+}
+
 void path_delete(void *obj) {
     ClipperLib::Path *path = (ClipperLib::Path*)obj;
     delete path;
@@ -72,6 +82,7 @@ ReturnCodeMsg paths_new(void **obj, void **data, size_t *elem_size) {
 ReturnCodeMsg paths_new_sized(size_t size, void **obj, void **data, size_t *elem_size) {
     SAFE_WRAP(
         ClipperLib::Paths *newPaths = new ClipperLib::Paths(size);
+        assert(newPaths->size() == size);
         *obj = (void*)newPaths;
         *data = newPaths->data();
         *elem_size = sizeof(ClipperLib::Path);
@@ -131,7 +142,8 @@ ReturnCodeMsg clipper_add_paths(void *clipper_obj, const void *paths_obj,
     SAFE_WRAP(
         ClipperLib::Clipper *clipper = (ClipperLib::Clipper*)clipper_obj;
         const ClipperLib::Paths *paths = (ClipperLib::Paths*)paths_obj;
-        clipper->AddPaths(*paths, poly_type, closed);
+        clipper->AddPaths(std::move(*paths), poly_type, closed);
+        delete paths;
     )
 }
 
@@ -151,7 +163,8 @@ ReturnCodeMsg clipper_offset_add_paths(void *clipper_offset_obj, const void *pat
     SAFE_WRAP(
         ClipperLib::ClipperOffset *clipper_offset = (ClipperLib::ClipperOffset*)clipper_offset_obj;
         const ClipperLib::Paths *paths = (ClipperLib::Paths*)paths_obj;
-        clipper_offset->AddPaths(*paths, join_type, end_type);
+        clipper_offset->AddPaths(std::move(*paths), join_type, end_type);
+        delete paths;
     )
 }
 
@@ -170,6 +183,19 @@ ReturnCodeMsg clipper_execute_open_closed(
         ClipperLib::ClosedPathsFromPolyTree(solution, *solution_closed);
         *solution_open_obj = (void*)solution_open;
         *solution_closed_obj = (void*)solution_closed;
+    )
+}
+
+ReturnCodeMsg clipper_execute_closed(
+      void *clipper_obj, void **solution_obj,
+      const ClipperLib::ClipType clip_type,
+      const ClipperLib::PolyFillType subj_fill_type,
+      const ClipperLib::PolyFillType clip_fill_type) {
+    SAFE_WRAP(
+        ClipperLib::Clipper *clipper = (ClipperLib::Clipper*)clipper_obj;
+        ClipperLib::Paths *solution = new ClipperLib::Paths();
+        clipper->Execute(clip_type, *solution, subj_fill_type, clip_fill_type);
+        *solution_obj = (void*)solution;
     )
 }
 
