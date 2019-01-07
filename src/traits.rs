@@ -1,9 +1,5 @@
 use crate::error::*;
 use crate::cpp;
-use std::convert::From;
-use std::convert::Into;
-use std::convert::TryFrom;
-use std::convert::TryInto;
 
 pub struct CppPolygons {
     paths: cpp::CppPaths
@@ -24,38 +20,8 @@ impl Polygons for CppPolygons {
     }
 }
 
-impl From<CppPolygons> for cpp::CppPaths {
-    fn from(polygons: CppPolygons) -> cpp::CppPaths {
-        polygons.paths
-    }
-}
-
-struct PolyWrap<T>(T);
-
-impl<T> TryFrom<CppPolygons> for PolyWrap<T> where T: Polygons {
-    type Error = ClipperError;
-    
-    fn try_from(other: CppPolygons) -> ClipperResult<PolyWrap<T>> {
-        Ok(PolyWrap(T::from_cpp(other.paths)?))
-    }
-}
-
-impl<T> std::ops::Deref for PolyWrap<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        &self.0
-    }
-}
-
-/*impl<T> From<PolyWrap<T>> for T {
-    fn from(other: PolyWrap<T>) -> T {
-        other.0
-    }
-}*/
-
 pub trait PolygonsOps: Polygons {
-    fn union<P: Polygons>(&self, operand : &P)
+    fn union_c<P: Polygons>(&self, operand : &P)
                           -> ClipperResult<CppPolygons> {
         let mut clip = cpp::Clipper::new()?;
         
@@ -74,10 +40,15 @@ pub trait PolygonsOps: Polygons {
 
     fn union_t<P: Polygons>(&self, operand: &P)
                             -> ClipperResult<Self> {
-        Ok(Self::from_cpp(self.union(operand)?.paths)?)
+        Ok(Self::from_cpp(self.union_c(operand)?.paths)?)
+    }
+
+    fn union<P: Polygons, R: Polygons>(&self, operand: &P)
+                                       -> ClipperResult<R> {
+        R::from_cpp(self.union_c(operand)?.paths)
     }
     
-    fn difference<P: Polygons>(&self, operand : &P)
+    fn difference_c<P: Polygons>(&self, operand : &P)
          -> ClipperResult<CppPolygons> {
         let mut clip = cpp::Clipper::new()?;
         
@@ -96,10 +67,15 @@ pub trait PolygonsOps: Polygons {
 
     fn difference_t<P: Polygons>(&self, operand: &P)
                             -> ClipperResult<Self> {
-        Ok(Self::from_cpp(self.difference(operand)?.paths)?)
+        Ok(Self::from_cpp(self.difference_c(operand)?.paths)?)
     }
 
-    fn intersection<P: Polygons>(&self, operand : &P)
+    fn difference<P: Polygons, R: Polygons>(&self, operand: &P)
+                                            -> ClipperResult<R> {
+        R::from_cpp(self.difference_c(operand)?.paths)
+    }
+    
+    fn intersection_c<P: Polygons>(&self, operand : &P)
          -> ClipperResult<CppPolygons> {
         let mut clip = cpp::Clipper::new()?;
         
@@ -118,7 +94,12 @@ pub trait PolygonsOps: Polygons {
 
     fn intersection_t<P: Polygons>(&self, operand: &P)
                             -> ClipperResult<Self> {
-        Ok(Self::from_cpp(self.intersection(operand)?.paths)?)
+        Ok(Self::from_cpp(self.intersection_c(operand)?.paths)?)
+    }
+
+    fn intersection<P: Polygons, R: Polygons>(&self, operand: &P)
+                                              -> ClipperResult<R> {
+        R::from_cpp(self.intersection_c(operand)?.paths)
     }
 }
 
@@ -255,11 +236,21 @@ mod tests {
                   SimplePoint {x:2, y:0}
             ]];
 
-        // Something goes wrong with the TryFrom trait
-        /*let result : SimplePolygons =
-            square1.union(&square2).unwrap().try_into().unwrap();*/
+        let square3 : SimplePolygons = vec![
+            vec![ SimplePoint {x:2, y:0},
+                  SimplePoint {x:6, y:0},
+                  SimplePoint {x:6, y:6},
+                  SimplePoint {x:2, y:6},
+                  SimplePoint {x:2, y:0}
+            ]];
 
         let result : SimplePolygons =
+            square1.union(&square2).unwrap();
+
+        let result =
             square1.union_t(&square2).unwrap();
+
+        let result : SimplePolygons =
+            square1.union_c(&square2).unwrap().difference(&square3).unwrap();
     }
 }
