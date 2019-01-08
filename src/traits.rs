@@ -101,6 +101,24 @@ pub trait PolygonsOps: Polygons {
                                               -> ClipperResult<R> {
         R::from_cpp(self.intersection_c(operand)?.paths)
     }
+
+    fn offset_c(&self, delta: f64) -> ClipperResult<CppPolygons> {
+        let mut clipoff = cpp::ClipperOffset::new()?;
+        clipoff.add_paths(self.to_cpp()?,
+                          cpp::CppJoinType::JtRound,
+                          cpp::CppEndType::EtClosedPolygon)?;
+        let solution = clipoff.execute(delta)?;
+        Ok(CppPolygons { paths: solution })
+    }
+
+    fn offset_t(&self, delta: f64) ->ClipperResult<Self> {
+        Self::from_cpp(self.offset_c(delta)?.paths)
+    }
+
+    fn offset<R: Polygons>(&self, delta: f64)
+                                        -> ClipperResult<R> {
+        R::from_cpp(self.offset_c(delta)?.paths)
+    }
 }
 
 impl<T> PolygonsOps for T where T: Polygons { }
@@ -252,5 +270,20 @@ mod tests {
 
         let result : SimplePolygons =
             square1.union_c(&square2).unwrap().difference(&square3).unwrap();
+    }
+
+    #[test]
+    fn test_offset() {
+        let square : SimplePolygons = vec![
+            vec![ SimplePoint {x:0, y:0},
+                  SimplePoint {x:5, y:0},
+                  SimplePoint {x:5, y:5},
+                  SimplePoint {x:0, y:5},
+                  SimplePoint {x:0, y:0}
+            ]];
+
+        let off = square.offset_t(1.0).unwrap();
+
+        let path = &off[0];
     }
 }
