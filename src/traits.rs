@@ -1,101 +1,13 @@
 use crate::error::*;
 use crate::cpp;
 
-pub struct CppPolygons {
-    paths: cpp::CppPaths
-}
-
-pub struct CppOpenPaths {
-    paths: cpp::CppPaths
-}
+pub struct CppPolygons(cpp::CppPaths);
+pub struct CppOpenPaths(cpp::CppPaths);
 
 pub trait Polygons: Sized {
     fn to_cpp(&self) -> ClipperResult<cpp::CppPaths>;
     fn from_cpp(other: cpp::CppPaths) -> ClipperResult<Self>;
-}
 
-pub trait OpenPaths: Sized {
-    fn to_cpp(&self) -> ClipperResult<cpp::CppPaths>;
-    fn from_cpp(other: cpp::CppPaths) -> ClipperResult<Self>;
-}
-
-pub trait Clipable: Sized {
-    type ChainType;
-
-    fn closed() -> bool;
-    fn clipable_to_cpp(&self) -> ClipperResult<cpp::CppPaths>;
-    fn clipable_from_cpp(other: cpp::CppPaths) -> ClipperResult<Self>;
-    fn clip_execute(&self, clip: &cpp::Clipper, op: cpp::CppClipType)
-                    -> ClipperResult<cpp::CppPaths>; 
-}
-
-impl Polygons for CppPolygons {
-    fn to_cpp(&self) -> ClipperResult<cpp::CppPaths> {
-        Ok(self.paths.pseudoclone())
-    }
-
-    fn from_cpp(other: cpp::CppPaths) -> ClipperResult<Self> {
-        Ok(CppPolygons { paths: other })
-    }
-}
-
-impl OpenPaths for CppOpenPaths {
-    fn to_cpp(&self) -> ClipperResult<cpp::CppPaths> {
-        Ok(self.paths.pseudoclone())
-    }
-
-    fn from_cpp(other: cpp::CppPaths) -> ClipperResult<Self> {
-        Ok(CppOpenPaths { paths: other })
-    }
-}
-
-impl<T> Clipable for T where T: Polygons {
-    type ChainType = CppPolygons;
-
-    fn closed() -> bool { true }
-
-    fn clipable_to_cpp(&self) -> ClipperResult<cpp::CppPaths> {
-        self.to_cpp()
-    }
-
-    fn clipable_from_cpp(other: cpp::CppPaths) ->ClipperResult<Self> {
-        Self::from_cpp(other)
-    }
-
-    fn clip_execute(&self, clip: &cpp::Clipper, op: cpp::CppClipType)
-                    -> ClipperResult<cpp::CppPaths>{
-        clip.execute_closed(
-            op,
-            cpp::CppPolyFillType::PftNonZero,
-            cpp::CppPolyFillType::PftNonZero)
-    }
-}
-
-/*impl<T: OpenPaths> Clipable for T where T: OpenPaths {
-    type ChainType = CppOpenPaths;
-    type ClipTrait = OpenPaths;
-
-    fn closed() -> bool { false }
-
-    fn clipable_to_cpp(&self) -> ClipperResult<cpp::CppPaths> {
-        self.to_cpp()
-    }
-
-    fn clipable_from_cpp(other: cpp::CppPaths) ->ClipperResult<Self> {
-        Self::from_cpp(other)
-    }
-
-    fn clip_execute(&self, clip: &cpp::Clipper, op: cpp::CppClipType)
-                    ->ClipperResult<cpp::CppPaths>{
-        let (open, closed) = clip.execute_open_closed(
-            op,
-            cpp::CppPolyFillType::PftNonZero,
-            cpp::CppPolyFillType::PftNonZero)?;
-        Ok(open)
-    }
-}*/
-
-pub trait PolygonsOps: Polygons {
     fn union_c<P: Polygons>(&self, operand : &P)
                           -> ClipperResult<CppPolygons> {
         let mut clip = cpp::Clipper::new()?;
@@ -110,102 +22,198 @@ pub trait PolygonsOps: Polygons {
             cpp::CppPolyFillType::PftNonZero,
             cpp::CppPolyFillType::PftNonZero)?;
 
-        Ok(CppPolygons { paths: solution })
+        Ok(CppPolygons(solution))
     }
 
     fn union_t<P: Polygons>(&self, operand: &P)
                             -> ClipperResult<Self> {
-        Ok(Self::from_cpp(self.union_c(operand)?.paths)?)
+        Ok(Self::from_cpp(self.union_c(operand)?.0)?)
     }
 
     fn union<P: Polygons, R: Polygons>(&self, operand: &P)
                                        -> ClipperResult<R> {
-        R::from_cpp(self.union_c(operand)?.paths)
+        R::from_cpp(self.union_c(operand)?.0)
     }
-}
-
-pub trait CommonOps: Clipable {
+    
     fn difference_c<P: Polygons>(&self, operand : &P)
-         -> ClipperResult<Self::ChainType> {
+         -> ClipperResult<CppPolygons> {
         let mut clip = cpp::Clipper::new()?;
         
-        clip.add_paths(self.clipable_to_cpp()?,
-                       cpp::CppPolyType::PtSubject, Self::closed())?;
+        clip.add_paths(self.to_cpp()?,
+                       cpp::CppPolyType::PtSubject, true)?;
         clip.add_paths(operand.to_cpp()?,
                        cpp::CppPolyType::PtClip, true)?;
 
-        let solution = self.clip_execute(
-            &clip,
-            cpp::CppClipType::CtDifference)?;
+        let solution = clip.execute_closed(
+            cpp::CppClipType::CtDifference,
+            cpp::CppPolyFillType::PftNonZero,
+            cpp::CppPolyFillType::PftNonZero)?;
 
-        Ok(Self::ChainType { paths: solution })
+        Ok(CppPolygons(solution))
     }
 
     fn difference_t<P: Polygons>(&self, operand: &P)
                             -> ClipperResult<Self> {
-        Ok(Self::clipable_from_cpp(self.difference_c(operand)?.paths)?)
+        Ok(Self::from_cpp(self.difference_c(operand)?.0)?)
     }
 
-    fn difference<P: Polygons, R: Clipable>(&self, operand: &P)
+    fn difference<P: Polygons, R: Polygons>(&self, operand: &P)
                                             -> ClipperResult<R> {
-        R::clipable_from_cpp(self.difference_c(operand)?.paths)
+        R::from_cpp(self.difference_c(operand)?.0)
     }
     
     fn intersection_c<P: Polygons>(&self, operand : &P)
-         -> ClipperResult<Self::ChainType> {
+         -> ClipperResult<CppPolygons> {
         let mut clip = cpp::Clipper::new()?;
         
-        clip.add_paths(self.clipable_to_cpp()?,
+        clip.add_paths(self.to_cpp()?,
                        cpp::CppPolyType::PtSubject, true)?;
-        clip.add_paths(operand.clipable_to_cpp()?,
+        clip.add_paths(operand.to_cpp()?,
                        cpp::CppPolyType::PtClip, true)?;
 
-        let solution = self.clip_execute(
-            &clip,
-            cpp::CppClipType::CtIntersection)?;
+        let solution = clip.execute_closed(
+            cpp::CppClipType::CtIntersection,
+            cpp::CppPolyFillType::PftNonZero,
+            cpp::CppPolyFillType::PftNonZero)?;
 
-        Ok(CppPolygons { paths: solution })
+        Ok(CppPolygons(solution))
     }
 
     fn intersection_t<P: Polygons>(&self, operand: &P)
                             -> ClipperResult<Self> {
-        Ok(Self::from_cpp(self.intersection_c(operand)?.paths)?)
+        Ok(Self::from_cpp(self.intersection_c(operand)?.0)?)
     }
 
-    fn intersection<P: Polygons, R: Clipable>(&self, operand: &P)
+    fn intersection<P: Polygons, R: Polygons>(&self, operand: &P)
                                               -> ClipperResult<R> {
-        R::from_cpp(self.intersection_c(operand)?.paths)
+        R::from_cpp(self.intersection_c(operand)?.0)
     }
 
-    fn offset_c(&self, delta: f64) -> ClipperResult<Self::ChainType> {
+    fn offset_c(&self, delta: f64) -> ClipperResult<CppPolygons> {
         let mut clipoff = cpp::ClipperOffset::new()?;
-        clipoff.add_paths(self.clipable_to_cpp()?,
+        clipoff.add_paths(self.to_cpp()?,
                           cpp::CppJoinType::JtRound,
                           cpp::CppEndType::EtClosedPolygon)?;
         let solution = clipoff.execute(delta)?;
-        Ok(CppPolygons { paths: solution })
+        Ok(CppPolygons(solution))
     }
 
     fn offset_t(&self, delta: f64) ->ClipperResult<Self> {
-        Self::clipable_from_cpp(self.offset_c(delta)?.paths)
+        Self::from_cpp(self.offset_c(delta)?.0)
     }
 
-    fn offset<R: Clipable>(&self, delta: f64)
+    fn offset<R: Polygons>(&self, delta: f64)
                                         -> ClipperResult<R> {
-        R::clipable_from_cpp(self.offset_c(delta)?.paths)
+        R::from_cpp(self.offset_c(delta)?.0)
     }
 }
 
-impl<T> PolygonsOps for T where T: Polygons { }
+impl Polygons for CppPolygons {
+    fn to_cpp(&self) -> ClipperResult<cpp::CppPaths> {
+        Ok(self.0.pseudoclone())
+    }
+
+    fn from_cpp(other: cpp::CppPaths) -> ClipperResult<Self> {
+        Ok(CppPolygons(other))
+    }
+}
+
+pub trait OpenPaths : Sized {
+    fn to_cpp(&self) -> ClipperResult<cpp::CppPaths>;
+    fn from_cpp(other: cpp::CppPaths) -> ClipperResult<Self>;
+
+    fn difference_c<P: Polygons>(&self, operand : &P)
+         -> ClipperResult<CppOpenPaths> {
+        let mut clip = cpp::Clipper::new()?;
+        
+        clip.add_paths(self.to_cpp()?,
+                       cpp::CppPolyType::PtSubject, false)?;
+        clip.add_paths(operand.to_cpp()?,
+                       cpp::CppPolyType::PtClip, true)?;
+
+        let solution = clip.execute_closed(
+            cpp::CppClipType::CtDifference,
+            cpp::CppPolyFillType::PftNonZero,
+            cpp::CppPolyFillType::PftNonZero)?;
+
+        Ok(CppOpenPaths(solution))
+    }
+
+    fn difference_t<P: Polygons>(&self, operand: &P)
+                            -> ClipperResult<Self> {
+        Ok(Self::from_cpp(self.difference_c(operand)?.0)?)
+    }
+
+    fn difference<P: Polygons, R: OpenPaths>(&self, operand: &P)
+                                            -> ClipperResult<R> {
+        R::from_cpp(self.difference_c(operand)?.0)
+    }
     
+    fn intersection_c<P: Polygons>(&self, operand : &P)
+         -> ClipperResult<CppOpenPaths> {
+        let mut clip = cpp::Clipper::new()?;
+        
+        clip.add_paths(self.to_cpp()?,
+                       cpp::CppPolyType::PtSubject, false)?;
+        clip.add_paths(operand.to_cpp()?,
+                       cpp::CppPolyType::PtClip, true)?;
+
+        let solution = clip.execute_closed(
+            cpp::CppClipType::CtIntersection,
+            cpp::CppPolyFillType::PftNonZero,
+            cpp::CppPolyFillType::PftNonZero)?;
+
+        Ok(CppOpenPaths(solution))
+    }
+
+    fn intersection_t<P: Polygons>(&self, operand: &P)
+                            -> ClipperResult<Self> {
+        Ok(Self::from_cpp(self.intersection_c(operand)?.0)?)
+    }
+
+    fn intersection<P: Polygons, R: OpenPaths>(&self, operand: &P)
+                                              -> ClipperResult<R> {
+        R::from_cpp(self.intersection_c(operand)?.0)
+    }
+
+    fn offset_c(&self, delta: f64) -> ClipperResult<CppOpenPaths> {
+        let mut clipoff = cpp::ClipperOffset::new()?;
+        clipoff.add_paths(self.to_cpp()?,
+                          cpp::CppJoinType::JtRound,
+                          cpp::CppEndType::EtOpenRound)?;
+        let solution = clipoff.execute(delta)?;
+        Ok(CppOpenPaths(solution))
+    }
+
+    fn offset_t(&self, delta: f64) ->ClipperResult<Self> {
+        Self::from_cpp(self.offset_c(delta)?.0)
+    }
+
+    fn offset<R: OpenPaths>(&self, delta: f64)
+                                        -> ClipperResult<R> {
+        R::from_cpp(self.offset_c(delta)?.0)
+    }
+}
+
+impl OpenPaths for CppOpenPaths {
+    fn to_cpp(&self) -> ClipperResult<cpp::CppPaths> {
+        Ok(self.0.pseudoclone())
+    }
+
+    fn from_cpp(other: cpp::CppPaths) -> ClipperResult<Self> {
+        Ok(CppOpenPaths(other))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::simple_polygon::*;
+    use crate::simple_polygon::SimplePolygons;
 
     #[test]
     fn test_to_cpp() {
-        let squares : SimplePolygons = vec![
+        let squares = SimplePolygons(vec![
             vec![ SimplePoint {x:0, y:0},
                   SimplePoint {x:5, y:0},
                   SimplePoint {x:5, y:5},
@@ -218,7 +226,7 @@ mod tests {
                   SimplePoint {x:2, y:6},
                   SimplePoint {x:2, y:2}
             ]
-        ];
+        ]);
 
         let cpp_squares : cpp::CppPaths = squares.to_cpp().unwrap();
         let cpp_path = cpp_squares.at(0).unwrap();
@@ -267,7 +275,7 @@ mod tests {
 
         let new_squares = SimplePolygons::from_cpp(cpp_squares).unwrap();
 
-        let new_path = &new_squares[0];
+        let new_path = &new_squares.0[0];
 
         let p = &new_path[0];
         assert_eq!(p.x, 0);
@@ -289,7 +297,7 @@ mod tests {
         assert_eq!(p.x, 0);
         assert_eq!(p.y, 0);
 
-        let new_path = &new_squares[1];
+        let new_path = &new_squares.0[1];
 
         let p = &new_path[0];
         assert_eq!(p.x, 2);
@@ -314,28 +322,28 @@ mod tests {
 
     #[test]
     fn test_simple_union() {
-        let square1 : SimplePolygons = vec![
+        let square1 = SimplePolygons(vec![
             vec![ SimplePoint {x:0, y:0},
                   SimplePoint {x:5, y:0},
                   SimplePoint {x:5, y:5},
                   SimplePoint {x:0, y:5},
                   SimplePoint {x:0, y:0}
-            ]];
-        let square2 : SimplePolygons = vec![
+            ]]);
+        let square2 = SimplePolygons(vec![
             vec![ SimplePoint {x:2, y:0},
                   SimplePoint {x:6, y:0},
                   SimplePoint {x:6, y:5},
                   SimplePoint {x:2, y:5},
                   SimplePoint {x:2, y:0}
-            ]];
+            ]]);
 
-        let square3 : SimplePolygons = vec![
+        let square3 = SimplePolygons(vec![
             vec![ SimplePoint {x:2, y:0},
                   SimplePoint {x:6, y:0},
                   SimplePoint {x:6, y:6},
                   SimplePoint {x:2, y:6},
                   SimplePoint {x:2, y:0}
-            ]];
+            ]]);
 
         let result : SimplePolygons =
             square1.union(&square2).unwrap();
@@ -349,16 +357,16 @@ mod tests {
 
     #[test]
     fn test_offset() {
-        let square : SimplePolygons = vec![
+        let square = SimplePolygons(vec![
             vec![ SimplePoint {x:0, y:0},
                   SimplePoint {x:5, y:0},
                   SimplePoint {x:5, y:5},
                   SimplePoint {x:0, y:5},
                   SimplePoint {x:0, y:0}
-            ]];
+            ]]);
 
         let off = square.offset_t(1.0).unwrap();
 
-        let path = &off[0];
+        let path = &off.0[0];
     }
 }

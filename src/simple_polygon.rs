@@ -8,13 +8,19 @@ pub struct SimplePoint {
 }
 
 pub type SimplePolygon = Vec<SimplePoint>;
-pub type SimplePolygons = Vec<SimplePolygon>;
+pub struct SimplePolygons(pub Vec<SimplePolygon>);
+
+impl SimplePolygons {
+    pub fn new(val: Vec<SimplePolygon>) -> SimplePolygons {
+        SimplePolygons(val)
+    }
+}
 
 impl Polygons for SimplePolygons {
     fn to_cpp(&self) -> ClipperResult<cpp::CppPaths> {
-        let result = cpp::CppPaths::new_sized(self.len())?;
+        let result = cpp::CppPaths::new_sized(self.0.len())?;
 
-        for (i, path) in self.iter().enumerate() {
+        for (i, path) in self.0.iter().enumerate() {
             let mut cpp_path = result.at(i)?;
 
             cpp_path.resize(path.len())?;
@@ -32,7 +38,7 @@ impl Polygons for SimplePolygons {
     fn from_cpp(cpp_paths: cpp::CppPaths)
                 -> ClipperResult<SimplePolygons> {
         let size = cpp_paths.len();
-        let mut result = SimplePolygons::with_capacity(size);
+        let mut result = Vec::<SimplePolygon>::with_capacity(size);
 
         for i in 0..size {
             let cpp_path = cpp_paths.at(i)?;
@@ -46,7 +52,7 @@ impl Polygons for SimplePolygons {
             result.push(path);
         }
 
-        Ok(result)
+        Ok(SimplePolygons(result))
     }
 }
 
