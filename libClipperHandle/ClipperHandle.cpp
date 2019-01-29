@@ -12,10 +12,10 @@ struct ReturnCodeMsg {
 
 #define SAFE_WRAP(CODE) try { CODE } \
     catch (ClipperLib::clipperException &e) {   \
-        return ReturnCodeMsg { 2, e.what() };   \
+        return (ReturnCodeMsg) { 2, e.what() };   \
     } catch (std::exception &e) {          \
-        return ReturnCodeMsg { 1, e.what() };   \
-    } return ReturnCodeMsg { 0, nullptr };
+        return (ReturnCodeMsg) { 1, e.what() };   \
+    } return (ReturnCodeMsg) { 0, nullptr };
 
 ReturnCodeMsg path_new(void **obj, ClipperLib::IntPoint **data) {
     SAFE_WRAP(
